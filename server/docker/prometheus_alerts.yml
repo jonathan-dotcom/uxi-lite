@@ -1,0 +1,270 @@
+groups:
+  # ===========================================
+  # WiFi Alerts
+  # ===========================================
+  - name: wifi_alerts
+    rules:
+      - alert: RSSILow
+        expr: avg_over_time(uxi_wifi_rssi_dbm[5m]) < -85
+        for: 5m
+        labels:
+          severity: error
+          category: wifi
+        annotations:
+          summary: "Low WiFi RSSI detected"
+          description: "Average RSSI {{ $value | printf \"%.1f\" }} dBm is below -85 dBm threshold for sensor {{ $labels.sensor }} on network {{ $labels.network }}"
+      
+      - alert: RSSIDrop
+        expr: avg_over_time(uxi_wifi_rssi_dbm[5m]) - avg_over_time(uxi_wifi_rssi_dbm[10m] offset 5m) < -20
+        for: 5m
+        labels:
+          severity: error
+          category: wifi
+        annotations:
+          summary: "WiFi RSSI dropped significantly"
+          description: "RSSI dropped more than 20 dB in 5 minutes for sensor {{ $labels.sensor }} on network {{ $labels.network }}"
+      
+      - alert: LowReceiveBitrate
+        expr: avg_over_time(uxi_wifi_rx_bitrate_mbps[5m]) < 6
+        for: 5m
+        labels:
+          severity: error
+          category: wifi
+        annotations:
+          summary: "Low WiFi receive bitrate"
+          description: "Average receive bitrate {{ $value | printf \"%.1f\" }} Mbps is below 6 Mbps for sensor {{ $labels.sensor }} on network {{ $labels.network }}"
+      
+      - alert: LowTransmitBitrate
+        expr: avg_over_time(uxi_wifi_tx_bitrate_mbps[5m]) < 6
+        for: 5m
+        labels:
+          severity: error
+          category: wifi
+        annotations:
+          summary: "Low WiFi transmit bitrate"
+          description: "Average transmit bitrate {{ $value | printf \"%.1f\" }} Mbps is below 6 Mbps for sensor {{ $labels.sensor }} on network {{ $labels.network }}"
+      
+      - alert: HighRetryRate
+        expr: avg_over_time(uxi_wifi_frame_retry_rate_pct[2m]) > 50
+        for: 2m
+        labels:
+          severity: error
+          category: wifi
+        annotations:
+          summary: "High WiFi frame retry rate"
+          description: "Average retry rate {{ $value | printf \"%.1f\" }}% exceeds 50% for sensor {{ $labels.sensor }} on network {{ $labels.network }}"
+      
+      - alert: HighChannelUtilization
+        expr: avg_over_time(uxi_wifi_channel_busy_pct[2m]) > 70
+        for: 2m
+        labels:
+          severity: error
+          category: wifi
+        annotations:
+          summary: "High WiFi channel utilization"
+          description: "Average channel utilization {{ $value | printf \"%.1f\" }}% exceeds 70% for sensor {{ $labels.sensor }} on network {{ $labels.network }}"
+
+  # ===========================================
+  # Network Alerts
+  # ===========================================
+  - name: network_alerts
+    rules:
+      - alert: HighDNSLookupTime
+        expr: avg_over_time(uxi_dns_time_ms[5m]) > 100
+        for: 5m
+        labels:
+          severity: error
+          category: network
+        annotations:
+          summary: "High DNS lookup time"
+          description: "Average DNS lookup time {{ $value | printf \"%.1f\" }}ms exceeds 100ms for sensor {{ $labels.sensor }} on network {{ $labels.network }}"
+      
+      - alert: HighDHCPResponseTime
+        expr: avg_over_time(uxi_dhcp_time_ms[5m]) > 10000
+        for: 5m
+        labels:
+          severity: error
+          category: network
+        annotations:
+          summary: "High DHCP response time"
+          description: "Average DHCP response time {{ $value | printf \"%.1f\" }}ms exceeds 10 seconds for sensor {{ $labels.sensor }} on network {{ $labels.network }}"
+      
+      - alert: HighCaptivePortalLoadTime
+        expr: avg_over_time(uxi_captive_portal_time_ms[3m]) > 30000
+        for: 3m
+        labels:
+          severity: error
+          category: network
+        annotations:
+          summary: "High captive portal load time"
+          description: "Average captive portal load time {{ $value | printf \"%.1f\" }}ms exceeds 30 seconds for sensor {{ $labels.sensor }} on network {{ $labels.network }}"
+
+  # ===========================================
+  # Internal Service Alerts
+  # ===========================================
+  - name: internal_alerts
+    rules:
+      - alert: HighLatencyInternal
+        expr: avg_over_time(uxi_service_rtt_avg_ms{scope="internal"}[5m]) > 1000
+        for: 5m
+        labels:
+          severity: error
+          category: internal
+        annotations:
+          summary: "High internal service latency"
+          description: "Average latency {{ $value | printf \"%.1f\" }}ms exceeds 1000ms for internal target {{ $labels.target }} on sensor {{ $labels.sensor }}"
+      
+      - alert: HighPacketLossInternal
+        expr: avg_over_time(uxi_service_packet_loss_pct{scope="internal"}[5m]) > 70
+        for: 5m
+        labels:
+          severity: error
+          category: internal
+        annotations:
+          summary: "High internal service packet loss"
+          description: "Average packet loss {{ $value | printf \"%.1f\" }}% exceeds 70% for internal target {{ $labels.target }} on sensor {{ $labels.sensor }}"
+      
+      - alert: HighJitterInternal
+        expr: avg_over_time(uxi_service_jitter_ms{scope="internal"}[10m]) > 100
+        for: 10m
+        labels:
+          severity: error
+          category: internal
+        annotations:
+          summary: "High internal service jitter"
+          description: "Average jitter {{ $value | printf \"%.1f\" }}ms exceeds 100ms for internal target {{ $labels.target }} on sensor {{ $labels.sensor }}"
+      
+      - alert: HighTelnetElapsedTimeInternal
+        expr: avg_over_time(uxi_service_elapsed_time_s{scope="internal",test_type="tcp"}[3m]) > 10
+        for: 3m
+        labels:
+          severity: error
+          category: internal
+        annotations:
+          summary: "High internal Telnet/TCP elapsed time"
+          description: "Average elapsed time {{ $value | printf \"%.1f\" }}s exceeds 10 seconds for internal target {{ $labels.target }} on sensor {{ $labels.sensor }}"
+      
+      - alert: LowVoIPMOSInternal
+        expr: avg_over_time(uxi_voip_mos{scope="internal"}[3m]) < 3.1
+        for: 3m
+        labels:
+          severity: error
+          category: internal
+        annotations:
+          summary: "Low internal VoIP MOS score"
+          description: "Average VoIP MOS {{ $value | printf \"%.2f\" }} is below 3.1 for sensor {{ $labels.sensor }} on network {{ $labels.network }}"
+      
+      - alert: WebAppTestingElapsedTimeIncreaseInternal
+        expr: (avg_over_time(uxi_service_elapsed_time_s{scope="internal",test_type="http"}[5m]) / avg_over_time(uxi_service_elapsed_time_s{scope="internal",test_type="http"}[30m]) - 1) * 100 > 20
+        for: 5m
+        labels:
+          severity: error
+          category: internal
+        annotations:
+          summary: "Internal web app test time increased significantly"
+          description: "Test time increased by more than 20% for internal target {{ $labels.target }} on sensor {{ $labels.sensor }}"
+      
+      - alert: LowDownloadThroughputInternal
+        expr: avg_over_time(uxi_throughput_download_mbps{target=~".*internal.*"}[60m]) < 4
+        for: 60m
+        labels:
+          severity: error
+          category: internal
+        annotations:
+          summary: "Low internal download throughput"
+          description: "Average download throughput {{ $value | printf \"%.1f\" }} Mbps is below 4 Mbps for sensor {{ $labels.sensor }}"
+      
+      - alert: LowUploadThroughputInternal
+        expr: avg_over_time(uxi_throughput_upload_mbps{target=~".*internal.*"}[60m]) < 1
+        for: 60m
+        labels:
+          severity: error
+          category: internal
+        annotations:
+          summary: "Low internal upload throughput"
+          description: "Average upload throughput {{ $value | printf \"%.1f\" }} Mbps is below 1 Mbps for sensor {{ $labels.sensor }}"
+
+  # ===========================================
+  # External Service Alerts
+  # ===========================================
+  - name: external_alerts
+    rules:
+      - alert: HighLatencyExternal
+        expr: avg_over_time(uxi_service_rtt_avg_ms{scope="external"}[5m]) > 1000
+        for: 5m
+        labels:
+          severity: error
+          category: external
+        annotations:
+          summary: "High external service latency"
+          description: "Average latency {{ $value | printf \"%.1f\" }}ms exceeds 1000ms for external target {{ $labels.target }} on sensor {{ $labels.sensor }}"
+      
+      - alert: HighPacketLossExternal
+        expr: avg_over_time(uxi_service_packet_loss_pct{scope="external"}[5m]) > 70
+        for: 5m
+        labels:
+          severity: error
+          category: external
+        annotations:
+          summary: "High external service packet loss"
+          description: "Average packet loss {{ $value | printf \"%.1f\" }}% exceeds 70% for external target {{ $labels.target }} on sensor {{ $labels.sensor }}"
+      
+      - alert: HighJitterExternal
+        expr: avg_over_time(uxi_service_jitter_ms{scope="external"}[10m]) > 100
+        for: 10m
+        labels:
+          severity: error
+          category: external
+        annotations:
+          summary: "High external service jitter"
+          description: "Average jitter {{ $value | printf \"%.1f\" }}ms exceeds 100ms for external target {{ $labels.target }} on sensor {{ $labels.sensor }}"
+      
+      - alert: HighTelnetElapsedTimeExternal
+        expr: avg_over_time(uxi_service_elapsed_time_s{scope="external",test_type="tcp"}[3m]) > 10
+        for: 3m
+        labels:
+          severity: error
+          category: external
+        annotations:
+          summary: "High external Telnet/TCP elapsed time"
+          description: "Average elapsed time {{ $value | printf \"%.1f\" }}s exceeds 10 seconds for external target {{ $labels.target }} on sensor {{ $labels.sensor }}"
+      
+      - alert: LowVoIPMOSExternal
+        expr: avg_over_time(uxi_voip_mos{scope="external"}[3m]) < 3.1
+        for: 3m
+        labels:
+          severity: error
+          category: external
+        annotations:
+          summary: "Low external VoIP MOS score"
+          description: "Average VoIP MOS {{ $value | printf \"%.2f\" }} is below 3.1 for sensor {{ $labels.sensor }} on network {{ $labels.network }}"
+      
+      - alert: WebAppTestingElapsedTimeIncreaseExternal
+        expr: (avg_over_time(uxi_service_elapsed_time_s{scope="external",test_type="http"}[5m]) / avg_over_time(uxi_service_elapsed_time_s{scope="external",test_type="http"}[30m]) - 1) * 100 > 20
+        for: 5m
+        labels:
+          severity: error
+          category: external
+        annotations:
+          summary: "External web app test time increased significantly"
+          description: "Test time increased by more than 20% for external target {{ $labels.target }} on sensor {{ $labels.sensor }}"
+      
+      - alert: LowDownloadThroughputExternal
+        expr: avg_over_time(uxi_throughput_download_mbps{target!~".*internal.*"}[60m]) < 4
+        for: 60m
+        labels:
+          severity: error
+          category: external
+        annotations:
+          summary: "Low external download throughput"
+          description: "Average download throughput {{ $value | printf \"%.1f\" }} Mbps is below 4 Mbps for sensor {{ $labels.sensor }}"
+      
+      - alert: LowUploadThroughputExternal
+        expr: avg_over_time(uxi_throughput_upload_mbps{target!~".*internal.*"}[60m]) < 1
+        for: 60m
+        labels:
+          severity: error
+          category: external
+        annotations:
+          summary: "Low external upload throughput"
+          description: "Average upload throughput {{ $value | printf \"%.1f\" }} Mbps is below 1 Mbps for sensor {{ $labels.sensor }}"

@@ -1,0 +1,21 @@
+version: "3.8"
+# NOTE: Blackbox Exporter is no longer needed
+# All service status is now provided by uxi_core_exporter via uxi_service_up metric
+# This ensures all data comes from the same test cycle (consistent data source)
+#
+# If you need real-time probing independent of test cycle, uncomment below:
+#
+# services:
+#   blackbox:
+#     image: prom/blackbox-exporter:latest
+#     container_name: uxi-blackbox
+#     restart: always
+#     ports:
+#       - "9115:9115"
+#     cap_add:
+#       - NET_RAW
+#     volumes:
+#       - ./blackbox.yml:/config/blackbox.yml:ro
+#     command:
+#       - "--config.file=/config/blackbox.yml"
+services: {}

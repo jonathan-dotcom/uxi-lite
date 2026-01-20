@@ -1,0 +1,21 @@
+global:
+  scrape_interval: 30s
+
+# Alerting rules configuration
+rule_files:
+  - "prometheus_alerts.yml"
+
+scrape_configs:
+  # Main UXI sensor metrics
+  # All service status (UP/DOWN), RTT, jitter, packet loss comes from uxi_core_exporter
+  # No need for Blackbox Exporter anymore
+  - job_name: "uxi-core"
+    static_configs:
+      # BEGIN UXI CORE TARGETS
+      - targets:
+          - "100.123.214.125:9105"
+      # END UXI CORE TARGETS
+
+  # NOTE: Blackbox Exporter jobs removed
+  # Service status is now provided by uxi_service_up metric from uxi_core_exporter
+  # This ensures all data comes from the same test cycle (consistent data source)

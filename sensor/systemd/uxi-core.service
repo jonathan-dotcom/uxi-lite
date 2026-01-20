@@ -1,0 +1,16 @@
+[Unit]
+Description=UXI-Lite Core Tests Exporter
+After=network-online.target NetworkManager.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/uxi-lite-sensor
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/uxi-lite-sensor/.venv/bin/python /opt/uxi-lite-sensor/core/uxi_core_exporter.py --config /opt/uxi-lite-sensor/config/config.yaml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

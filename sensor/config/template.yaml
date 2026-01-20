@@ -1,0 +1,141 @@
+sensor_name: TW-2-DPTSI
+metrics_port: 9105
+log_path: /opt/uxi-lite-sensor/logs/results.jsonl
+
+# Aruba UXI compatible mode
+export_aruba_csv: true
+aruba_csv_path: /opt/uxi-lite-sensor/logs/aruba-uxi-raw-data-report.csv
+
+# Optional delay between test cycles (seconds)
+# Aruba agents use 300 (5 min), sensors use 0 (continuous)
+inter_cycle_delay_seconds: 0
+
+wifi:
+  # Example 1: WPA Enterprise (802.1X) - like myITS-WiFi
+  - name: "myITS-WiFi"
+    iface: "wlan0"
+    ssid: "myITS-WiFi"
+    # WPA Enterprise (802.1X) configuration
+    eap_method: "PEAP"           # Options: PEAP, TTLS, TLS
+    phase2_auth: "MSCHAPv2"      # Options: MSCHAPv2, PAP, CHAP, GTC
+    identity: "username@student.its.ac.id"  # Your username
+    password: "your_password"    # Your password
+    # anonymous_identity: ""     # Optional: anonymous outer identity
+  
+  # Example 2: WPA-PSK (Personal) - simple password-based WiFi
+  # - name: "Home WiFi"
+  #   iface: "wlan1"
+  #   ssid: "MyHomeWiFi"
+  #   password: "wifi_password"
+
+wired: []
+
+# Service frequency options: fastest, 10min, 20min, 30min, 1hr, 2hr, 4hr, 6hr, 12hr
+# "fastest" = run every test cycle (default)
+services:
+  internal:
+    - name: AD03
+      target: ad03.its.ac.id
+      tests: [icmp]
+      frequency: fastest
+    - name: AD07
+      target: ad07.its.ac.id
+      tests: [icmp]
+      frequency: fastest
+    - name: ClearPass
+      target: 103.94.198.45
+      tests: [icmp]
+      frequency: fastest
+    - name: CS4 Ruckus
+      target: 10.0.0.1
+      tests: [icmp]
+      frequency: fastest
+    - name: WLC10
+      target: 10.24.0.10
+      tests: [icmp]
+      frequency: fastest
+    - name: WLC11
+      target: 10.24.0.11
+      tests: [icmp]
+      frequency: fastest
+    - name: WLC12
+      target: 10.24.0.12
+      tests: [icmp]
+      frequency: fastest
+    - name: WLC13
+      target: 10.24.0.13
+      tests: [icmp]
+      frequency: fastest
+    - name: WLC14
+      target: 10.24.0.14
+      tests: [icmp]
+      frequency: fastest
+    - name: Portal ITS
+      target: portal.its.ac.id
+      tests: [icmp, http, tcp_80, tcp_443]
+      frequency: fastest
+  external:
+    - name: Google
+      target: www.google.com
+      tests: [icmp, http, tcp_80, tcp_443]
+      frequency: fastest
+    - name: Box
+      target: www.box.com
+      tests: [icmp, http, tcp_80, tcp_443]
+      frequency: fastest
+    - name: Docusign
+      target: www.docusign.com
+      tests: [icmp, http, tcp_80, tcp_443]
+      frequency: fastest
+    - name: Facebook
+      target: www.facebook.com
+      tests: [icmp, http, tcp_80, tcp_443]
+      frequency: fastest
+    - name: Google Drive
+      target: drive.google.com
+      tests: [icmp, http, tcp_80, tcp_443]
+      frequency: fastest
+    - name: Jira
+      target: jira.com
+      tests: [icmp, http, tcp_80, tcp_443]
+      frequency: fastest
+    - name: Youtube
+      target: www.youtube.com
+      tests: [icmp, http, tcp_80, tcp_443]
+      frequency: fastest
+    - name: Zoom
+      target: zoom.us
+      tests: [icmp, http, tcp_80, tcp_443]
+      frequency: fastest
+    # Throughput test example (runs less frequently to avoid bandwidth impact)
+    # Throughput test - target not needed (uses throughput_test.url config)
+    - name: Speedtest
+      tests: [throughput]
+      frequency: 1hr
+
+wifi_environment:
+  enabled: true
+  max_aps: 40
+  min_rssi_dbm: -90
+  ttl_seconds: 300
+
+location:
+  auto: true
+  provider: ipinfo
+  refresh_hours: 24
+  address_notes: ""
+
+incident_thresholds:
+  dns_ms: 200
+  dhcp_ms: 1500
+  packet_loss_pct: 5
+  latency_ms: 100
+  jitter_ms: 50
+  association_ms: 10000
+  http_ms: 3000
+  rssi_dbm: -75
+
+throughput_test:
+  enabled: true
+  url: "https://speed.hetzner.de/10MB.bin"
+  upload_url: "https://httpbin.org/post"
