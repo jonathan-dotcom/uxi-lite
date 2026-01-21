@@ -66,6 +66,9 @@ UXI-Lite telah diimplementasikan untuk menjadi **100% compatible** dengan cara k
 └─────────────────────────────────────────────────────────┘
 ```
 
+UXI-Lite juga bisa menambahkan jeda kecil antar test melalui `inter_test_delay_seconds`
+(default 5.0). Set ke 0 untuk menonaktifkan.
+
 ## Service Frequency
 
 Setiap service dapat memiliki frequency sendiri:
@@ -188,6 +191,20 @@ UXI-Lite mengikuti pola yang **sama persis**.
 | CSV Export | `export_aruba_csv` | `true` |
 | CSV Path | `aruba_csv_path` | `/opt/uxi-lite-sensor/logs/aruba-uxi-raw-data-report.csv` |
 
+### UXI-Lite-only Settings (Optional)
+
+- `inter_test_delay_seconds`: jeda antar test untuk meniru pacing Aruba (default 5.0, set 0 untuk off)
+- `wifi.*.bssid_lock`: kunci ke BSSID AP tertentu untuk mencegah roaming
+
+```yaml
+inter_test_delay_seconds: 5.0
+wifi:
+  - name: "myITS-WiFi"
+    iface: "wlan0"
+    ssid: "myITS-WiFi"
+    bssid_lock: "a0:25:d7:df:3e:70"
+```
+
 ## UXI-Lite Bonus Features
 
 UXI-Lite menambahkan fitur yang **TIDAK ADA** di Aruba UXI:
@@ -211,7 +228,8 @@ curl http://sensor:9105/metrics | grep uxi_
 
 ### 3. Throughput to Prometheus
 
-Aruba UXI throughput results **tidak** masuk CSV export. UXI-Lite exports ke Prometheus:
+Aruba UXI throughput results **tidak** masuk CSV export. UXI-Lite menulisnya ke
+Prometheus dan juga menambahkan row throughput ke CSV (untuk kebutuhan lokal).
 
 ```
 uxi_throughput_download_mbps{sensor="...", network="...", target="..."}
