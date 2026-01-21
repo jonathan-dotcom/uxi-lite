@@ -148,6 +148,7 @@ throughput_test:
   enabled: true
   method: http   # or: fastcom (Aruba-like)
   connections: 3
+  # Set upload_connections: 0 (or upload_bytes: 0) for download-only.
   upload_connections: 1
   upload_bytes: 5000000
   timeout_s: 20

@@ -1888,7 +1888,8 @@ def run_throughput_test(
     method = _normalize_throughput_method(throughput_cfg.get("method"))
     connections = int(throughput_cfg.get("connections") or 1)
     connections = max(1, min(connections, 8))
-    upload_connections = int(throughput_cfg.get("upload_connections") or 1)
+    raw_upload_connections = throughput_cfg.get("upload_connections")
+    upload_connections = 1 if raw_upload_connections is None else int(raw_upload_connections)
     upload_connections = max(0, min(upload_connections, 4))
     upload_bytes = int(throughput_cfg.get("upload_bytes") or 0)
 
@@ -2357,8 +2358,10 @@ def get_throughput_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     method = _normalize_throughput_method(throughput_cfg.get("method"))
     default_connections = 5 if method == "fastcom" else 3
     connections = int(throughput_cfg.get("connections") or default_connections)
-    upload_connections = int(throughput_cfg.get("upload_connections") or 1)
-    upload_bytes = int(throughput_cfg.get("upload_bytes") or 5_000_000)
+    raw_upload_connections = throughput_cfg.get("upload_connections")
+    upload_connections = 1 if raw_upload_connections is None else int(raw_upload_connections)
+    raw_upload_bytes = throughput_cfg.get("upload_bytes")
+    upload_bytes = 5_000_000 if raw_upload_bytes is None else int(raw_upload_bytes)
     timeout_s = int(throughput_cfg.get("timeout_s") or 20)
     url_count = int(throughput_cfg.get("url_count") or max(connections, 5))
     fastcom_url_count = int(throughput_cfg.get("fastcom_url_count") or url_count)

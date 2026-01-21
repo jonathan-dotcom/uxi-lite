@@ -201,6 +201,7 @@ throughput_test:
   method: http
   # Parallel connections (higher = more accurate but more bandwidth)
   connections: 3
+  # Set upload_connections: 0 (or upload_bytes: 0) for download-only.
   upload_connections: 1
   upload_bytes: 5000000
   timeout_s: 20

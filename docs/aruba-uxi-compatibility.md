@@ -268,6 +268,7 @@ throughput_test:
   # - method: http
   method: fastcom
   connections: 5
+  # Set upload_connections: 0 (or upload_bytes: 0) for download-only.
   upload_connections: 1
   upload_bytes: 5000000
   timeout_s: 20
@@ -277,6 +278,7 @@ throughput_test:
 
 - `method`: `fastcom` (Aruba-like) or `http` (custom URL)
 - `connections`: parallel download connections (more accurate, more bandwidth)
+- `upload_connections`: parallel upload connections (set `0` to disable upload)
 - `upload_bytes`: upload payload size for upload throughput
 - `url`: Actual URL for download test (used by `method: http`)
 - `upload_url`: Actual URL for upload test (used by `method: http`)
