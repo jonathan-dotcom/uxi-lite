@@ -10,6 +10,11 @@ aruba_csv_path: /opt/uxi-lite-sensor/logs/aruba-uxi-raw-data-report.csv
 # Aruba agents use 300 (5 min), sensors use 0 (continuous)
 inter_cycle_delay_seconds: 0
 
+# Optional delay between individual tests (seconds)
+# Helps match Aruba UXI test frequency (~20-40s between tests)
+# Default: 5.0 seconds. Set to 0 for fastest possible testing.
+inter_test_delay_seconds: 5.0
+
 wifi:
   # Example 1: WPA Enterprise (802.1X) - like myITS-WiFi
   - name: "myITS-WiFi"
@@ -21,6 +26,10 @@ wifi:
     identity: "username@student.its.ac.id"  # Your username
     password: "your_password"    # Your password
     # anonymous_identity: ""     # Optional: anonymous outer identity
+    # 
+    # BSSID Lock - Lock to specific AP to prevent roaming (recommended!)
+    # Get your preferred AP's BSSID with: sudo iw dev wlan0 scan | grep -E "BSS|SSID"
+    # bssid_lock: "a0:25:d7:df:3e:70"  # Uncomment and set to your preferred AP
   
   # Example 2: WPA-PSK (Personal) - simple password-based WiFi
   # - name: "Home WiFi"
