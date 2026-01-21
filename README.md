@@ -126,6 +126,10 @@ aruba_csv_path: /opt/uxi-lite-sensor/logs/aruba-uxi-raw-data-report.csv
 # Aruba agents: 300 (5 min), Sensors: 0 (continuous)
 inter_cycle_delay_seconds: 0
 
+# Optional delay between individual tests (seconds)
+# Helps match Aruba UXI pacing (roughly 20-40s between tests)
+inter_test_delay_seconds: 5.0
+
 # ============================================
 # NETWORK CONFIGURATION
 # ============================================
@@ -141,6 +145,7 @@ wifi:
     identity: "user@student.its.ac.id"
     password: "your_password"
     # anonymous_identity: ""   # Optional
+    # bssid_lock: "a0:25:d7:df:3e:70"  # Optional: lock to a specific AP (prevents roaming)
 
 # OPTION 2: WPA-PSK (Personal) - Home/Simple WiFi
 # wifi:
