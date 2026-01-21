@@ -1,3 +1,4 @@
 .setup_config
 sensor/config/config.yaml
 sensor/config/sensors/
+sensor/config/arubatemplate.yaml
