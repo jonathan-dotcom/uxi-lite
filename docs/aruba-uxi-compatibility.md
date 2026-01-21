@@ -261,12 +261,25 @@ services:
 ```yaml
 throughput_test:
   enabled: true
+  # Aruba UXI throughput uses Fast.com (headless Chromium).
+  # UXI-Lite can use Fast.com backend directly (recommended for Aruba-like results):
+  # - method: fastcom
+  # Or URL-based testing:
+  # - method: http
+  method: fastcom
+  connections: 5
+  upload_connections: 1
+  upload_bytes: 5000000
+  timeout_s: 20
   url: https://speed.cloudflare.com/__down?bytes=10000000   # Download URL
   upload_url: https://speed.cloudflare.com/__up             # Upload URL
 ```
 
-- `url`: Actual URL for download test
-- `upload_url`: Actual URL for upload test
+- `method`: `fastcom` (Aruba-like) or `http` (custom URL)
+- `connections`: parallel download connections (more accurate, more bandwidth)
+- `upload_bytes`: upload payload size for upload throughput
+- `url`: Actual URL for download test (used by `method: http`)
+- `upload_url`: Actual URL for upload test (used by `method: http`)
 
 **Note:** Unlike other service tests, throughput test does NOT use the `target` field. This avoids confusion about which URL is actually used.
 

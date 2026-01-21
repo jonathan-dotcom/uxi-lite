@@ -230,6 +230,11 @@ incident_thresholds:
 
 throughput_test:
   enabled: true
+  method: http
+  connections: 3
+  upload_connections: 1
+  upload_bytes: 5000000
+  timeout_s: 20
   url: "https://speed.cloudflare.com/__down?bytes=10000000"
   upload_url: "https://speed.cloudflare.com/__up"
 EOF

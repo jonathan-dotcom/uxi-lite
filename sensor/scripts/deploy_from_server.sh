@@ -133,9 +133,9 @@ fi
 remote_sudo() {
   local cmd="$*"
   if [ -n "${SUDO_PASS:-}" ]; then
-    ssh -t "$SENSOR_HOST" "printf '%s\n' \"$SUDO_PASS\" | sudo -S $cmd"
+    ssh -tt "$SENSOR_HOST" "printf '%s\n' \"$SUDO_PASS\" | sudo -S $cmd"
   else
-    ssh -t "$SENSOR_HOST" "sudo $cmd"
+    ssh -tt "$SENSOR_HOST" "sudo $cmd"
   fi
 }
 

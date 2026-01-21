@@ -237,6 +237,11 @@ UXI_THROUGHPUT_DOWNLOAD_MBPS = Gauge(
     "Throughput download speed in Mbps (Fast.com-like test)",
     ["sensor", "network", "target"],
 )
+UXI_THROUGHPUT_UPLOAD_MBPS = Gauge(
+    "uxi_throughput_upload_mbps",
+    "Throughput upload speed in Mbps",
+    ["sensor", "network", "target"],
+)
 UXI_SENSOR_INFO = Gauge(
     "uxi_sensor_info",
     "UXI sensor info",
@@ -1621,73 +1626,325 @@ def run_service_tests(targets: List[str], allow_ping: bool) -> List[Dict[str, Op
     return results
 
 
-def run_fastcom_throughput_test(timeout_s: int = 15) -> Tuple[Optional[float], Optional[float]]:
-    """Run Fast.com-like throughput test using multiple parallel downloads.
-    
-    Mimics Aruba UXI's Fast.com test behavior:
-    - Opens multiple connections (like fast.com uses ~5 connections)
-    - Downloads from CDN servers in parallel
-    - Measures aggregate throughput
-    
-    Returns:
-        Tuple of (download_speed_mbps, elapsed_seconds)
+FASTCOM_DEFAULT_TOKEN = "YXNkZmFzZGxmbnNkYWZoYXNkZmhrYWxm"
+FASTCOM_TOKEN_TTL_S = 6 * 60 * 60
+_fastcom_token_cache: Dict[str, Any] = {"token": None, "cached_at": 0.0}
+
+
+def _normalize_throughput_method(value: Any) -> str:
+    method = str(value or "").strip().lower()
+    if method in ("fast.com", "fastcom", "netflix", "aruba", "aruba_fastcom", "aruba-uxi", "uxi"):
+        return "fastcom"
+    if method in ("http", "curl", "url", "cloudflare", "hetzner", ""):
+        return "http"
+    return method
+
+
+def _get_fastcom_token(timeout_s: int = 10) -> Optional[str]:
+    """Get the token required for the Fast.com API.
+
+    Aruba UXI runs Fast.com via headless Chromium. UXI-Lite uses the same
+    Fast.com backend API directly (lighter + comparable results).
     """
-    # CDN test URLs (similar to how fast.com uses Netflix Open Connect)
-    # We use public CDN speed test endpoints
-    test_urls = [
-        "https://speed.cloudflare.com/__down?bytes=10000000",  # 10MB
-        "https://proof.ovh.net/files/10Mb.dat",               # 10MB
-        "http://speedtest.tele2.net/10MB.zip",                # 10MB
-    ]
-    
+    now = time.monotonic()
+    cached_token = _fastcom_token_cache.get("token")
+    cached_at = float(_fastcom_token_cache.get("cached_at") or 0.0)
+    if cached_token and (now - cached_at) < FASTCOM_TOKEN_TTL_S:
+        return str(cached_token)
+
+    res = run_command(
+        [
+            "curl",
+            "-sS",
+            "-L",
+            "--connect-timeout",
+            "3",
+            "--max-time",
+            str(timeout_s),
+            "https://fast.com",
+        ],
+        timeout_s + 2,
+    )
+    html = (res.stdout or "") if res.returncode == 0 and not res.timed_out else ""
+    match = re.search(r"app-[^\"\\s]+\\.js", html)
+    if not match:
+        LOG.debug("Fast.com token: cannot find app-*.js, using fallback token")
+        return FASTCOM_DEFAULT_TOKEN
+
+    app_js = match.group(0)
+    res = run_command(
+        [
+            "curl",
+            "-sS",
+            "-L",
+            "--connect-timeout",
+            "3",
+            "--max-time",
+            str(timeout_s),
+            f"https://fast.com/{app_js}",
+        ],
+        timeout_s + 2,
+    )
+    js_text = (res.stdout or "") if res.returncode == 0 and not res.timed_out else ""
+    match = re.search(r'token:\"([^\"]+)\"', js_text)
+    if not match:
+        LOG.debug("Fast.com token: cannot parse token, using fallback token")
+        return FASTCOM_DEFAULT_TOKEN
+
+    token = match.group(1)
+    _fastcom_token_cache["token"] = token
+    _fastcom_token_cache["cached_at"] = now
+    return token
+
+
+def _get_fastcom_targets(timeout_s: int, url_count: int) -> List[str]:
+    token = _get_fastcom_token(timeout_s=min(10, timeout_s))
+    if not token:
+        return []
+    url_count = max(1, min(int(url_count), 20))
+    api_url = f"https://api.fast.com/netflix/speedtest/v2?https=true&token={urllib.parse.quote(token)}&urlCount={url_count}"
+    res = run_command(
+        [
+            "curl",
+            "-sS",
+            "-L",
+            "--connect-timeout",
+            "3",
+            "--max-time",
+            str(timeout_s),
+            api_url,
+        ],
+        timeout_s + 2,
+    )
+    if res.returncode != 0 or res.timed_out:
+        return []
+    try:
+        payload = json.loads(res.stdout or "{}")
+    except json.JSONDecodeError:
+        return []
+    targets = payload.get("targets") or []
+    urls: List[str] = []
+    for entry in targets:
+        url = str((entry or {}).get("url") or "").strip()
+        if url:
+            urls.append(url)
+    return urls
+
+
+def _ensure_upload_payload_file(size_bytes: int) -> Optional[str]:
+    size_bytes = int(size_bytes)
+    if size_bytes <= 0:
+        return None
+    path = f"/tmp/uxi-lite-upload-{size_bytes}.bin"
+    try:
+        if os.path.exists(path) and os.path.getsize(path) == size_bytes:
+            return path
+        # Create deterministic, small-on-disk payload (zeros). Upload endpoints do not compress.
+        with open(path, "wb") as handle:
+            remaining = size_bytes
+            chunk = b"\x00" * min(1024 * 1024, remaining)
+            while remaining > 0:
+                if len(chunk) > remaining:
+                    chunk = chunk[:remaining]
+                handle.write(chunk)
+                remaining -= len(chunk)
+        return path
+    except OSError:
+        return None
+
+
+def _run_parallel_download(urls: List[str], timeout_s: int) -> Tuple[Optional[float], float]:
     import concurrent.futures
-    import time as time_module
-    
+
+    urls = [u.strip() for u in urls if str(u).strip()]
+    if not urls:
+        return None, 0.0
+
     def download_and_measure(url: str) -> Tuple[float, float]:
-        """Download from URL and return (bytes, seconds)."""
-        start = time_module.monotonic()
+        start = time.monotonic()
         res = run_command(
             [
-                "curl", "-L", "-o", "/dev/null", "-s",
-                "-w", "%{size_download}",
-                "--max-time", str(timeout_s),
-                "--connect-timeout", "3",
+                "curl",
+                "-L",
+                "-o",
+                "/dev/null",
+                "-sS",
+                "-w",
+                "%{size_download} %{http_code}",
+                "--max-time",
+                str(timeout_s),
+                "--connect-timeout",
+                "3",
                 url,
             ],
             timeout_s + 5,
         )
-        elapsed = time_module.monotonic() - start
+        elapsed = time.monotonic() - start
         if res.returncode != 0 or res.timed_out:
             return 0.0, elapsed
-        try:
-            size_bytes = float(res.stdout.strip())
-            return size_bytes, elapsed
-        except (ValueError, AttributeError):
+        parts = (res.stdout or "").strip().split()
+        if len(parts) < 2:
             return 0.0, elapsed
-    
-    start_total = time_module.monotonic()
+        try:
+            size_bytes = float(parts[0])
+            http_code = int(parts[1])
+        except ValueError:
+            return 0.0, elapsed
+        if http_code not in (200, 206):
+            return 0.0, elapsed
+        return max(0.0, size_bytes), elapsed
+
+    start_total = time.monotonic()
     total_bytes = 0.0
     max_elapsed = 0.0
-    
-    # Run downloads in parallel (like fast.com)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {executor.submit(download_and_measure, url): url for url in test_urls}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(urls)) as executor:
+        futures = [executor.submit(download_and_measure, url) for url in urls]
         for future in concurrent.futures.as_completed(futures, timeout=timeout_s + 10):
             try:
                 size_bytes, elapsed = future.result()
-                total_bytes += size_bytes
-                max_elapsed = max(max_elapsed, elapsed)
-            except Exception:
+            except Exception:  # pylint: disable=broad-except
                 continue
-    
-    total_elapsed = time_module.monotonic() - start_total
-    
+            total_bytes += size_bytes
+            max_elapsed = max(max_elapsed, elapsed)
+
+    total_elapsed = time.monotonic() - start_total
     if total_bytes <= 0 or max_elapsed <= 0:
-        return None, None
-    
-    # Calculate speed: total bytes / max time (aggregate speed)
+        return None, total_elapsed
     speed_mbps = (total_bytes * 8.0) / (max_elapsed * 1_000_000.0)
     return speed_mbps, total_elapsed
+
+
+def _run_parallel_upload(urls: List[str], payload_path: str, timeout_s: int) -> Tuple[Optional[float], float]:
+    import concurrent.futures
+
+    urls = [u.strip() for u in urls if str(u).strip()]
+    if not urls or not payload_path:
+        return None, 0.0
+
+    def upload_and_measure(url: str) -> Tuple[float, float]:
+        start = time.monotonic()
+        res = run_command(
+            [
+                "curl",
+                "-sS",
+                "-o",
+                "/dev/null",
+                "-w",
+                "%{size_upload} %{http_code}",
+                "-X",
+                "POST",
+                "--data-binary",
+                f"@{payload_path}",
+                "--connect-timeout",
+                "3",
+                "--max-time",
+                str(timeout_s),
+                url,
+            ],
+            timeout_s + 5,
+        )
+        elapsed = time.monotonic() - start
+        if res.returncode != 0 or res.timed_out:
+            return 0.0, elapsed
+        parts = (res.stdout or "").strip().split()
+        if len(parts) < 2:
+            return 0.0, elapsed
+        try:
+            size_bytes = float(parts[0])
+            http_code = int(parts[1])
+        except ValueError:
+            return 0.0, elapsed
+        if http_code < 200 or http_code >= 300:
+            return 0.0, elapsed
+        return max(0.0, size_bytes), elapsed
+
+    start_total = time.monotonic()
+    total_bytes = 0.0
+    max_elapsed = 0.0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(urls)) as executor:
+        futures = [executor.submit(upload_and_measure, url) for url in urls]
+        for future in concurrent.futures.as_completed(futures, timeout=timeout_s + 10):
+            try:
+                size_bytes, elapsed = future.result()
+            except Exception:  # pylint: disable=broad-except
+                continue
+            total_bytes += size_bytes
+            max_elapsed = max(max_elapsed, elapsed)
+
+    total_elapsed = time.monotonic() - start_total
+    if total_bytes <= 0 or max_elapsed <= 0:
+        return None, total_elapsed
+    speed_mbps = (total_bytes * 8.0) / (max_elapsed * 1_000_000.0)
+    return speed_mbps, total_elapsed
+
+
+def run_throughput_test(
+    throughput_cfg: Dict[str, Any], timeout_s: int = 20
+) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """Run throughput download+upload test.
+
+    Returns (download_mbps, upload_mbps, elapsed_seconds).
+    """
+    method = _normalize_throughput_method(throughput_cfg.get("method"))
+    connections = int(throughput_cfg.get("connections") or 1)
+    connections = max(1, min(connections, 8))
+    upload_connections = int(throughput_cfg.get("upload_connections") or 1)
+    upload_connections = max(0, min(upload_connections, 4))
+    upload_bytes = int(throughput_cfg.get("upload_bytes") or 0)
+
+    if method == "fastcom":
+        url_count = int(throughput_cfg.get("fastcom_url_count") or throughput_cfg.get("url_count") or 5)
+        targets = _get_fastcom_targets(timeout_s=min(timeout_s, 15), url_count=max(url_count, connections))
+        if not targets:
+            return None, None, None
+
+        # Download from Fast.com (Netflix OCA) endpoints (25MiB per request).
+        download_urls = [targets[i % len(targets)] for i in range(connections)]
+        download_mbps, download_elapsed = _run_parallel_download(download_urls, timeout_s=timeout_s)
+
+        # Upload to Fast.com OCA endpoints via /speedtest/range/0-N
+        upload_mbps: Optional[float] = None
+        upload_elapsed = 0.0
+        if upload_connections > 0 and upload_bytes > 0:
+            payload_path = _ensure_upload_payload_file(upload_bytes)
+            if payload_path:
+                range_targets = [t.replace("speedtest", "speedtest/range/") for t in targets]
+                # Note: range is inclusive; upload_bytes-1 yields ~upload_bytes bytes.
+                range_urls = [
+                    rt.replace("/range/", f"/range/0-{max(0, upload_bytes - 1)}")
+                    for rt in range_targets
+                ]
+                upload_urls = [range_urls[i % len(range_urls)] for i in range(upload_connections)]
+                upload_mbps, upload_elapsed = _run_parallel_upload(upload_urls, payload_path, timeout_s=timeout_s)
+
+        elapsed = download_elapsed if download_elapsed else upload_elapsed
+        return download_mbps, upload_mbps, elapsed or None
+
+    # Default: HTTP download/upload using configured URLs.
+    urls_val = throughput_cfg.get("urls")
+    if urls_val is None:
+        urls_val = throughput_cfg.get("url")
+    urls: List[str]
+    if isinstance(urls_val, list):
+        urls = [str(u).strip() for u in urls_val if str(u).strip()]
+    else:
+        urls = [str(urls_val).strip()] if str(urls_val or "").strip() else []
+    if not urls:
+        return None, None, None
+    download_urls = [urls[i % len(urls)] for i in range(max(1, connections))]
+    download_mbps, download_elapsed = _run_parallel_download(download_urls, timeout_s=timeout_s)
+
+    upload_mbps = None
+    upload_elapsed = 0.0
+    upload_url = str(throughput_cfg.get("upload_url") or "").strip()
+    if upload_connections > 0 and upload_bytes > 0 and upload_url:
+        payload_path = _ensure_upload_payload_file(upload_bytes)
+        if payload_path:
+            upload_urls = [upload_url for _ in range(upload_connections)]
+            upload_mbps, upload_elapsed = _run_parallel_upload(upload_urls, payload_path, timeout_s=timeout_s)
+
+    elapsed = download_elapsed if download_elapsed else upload_elapsed
+    return download_mbps, upload_mbps, elapsed or None
 
 
 def detect_captive_portal() -> bool:
@@ -2097,9 +2354,29 @@ def get_incident_thresholds(cfg: Dict[str, Any]) -> Dict[str, float]:
 def get_throughput_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     """Get throughput test configuration."""
     throughput_cfg = cfg.get("throughput_test") or {}
+    method = _normalize_throughput_method(throughput_cfg.get("method"))
+    default_connections = 5 if method == "fastcom" else 3
+    connections = int(throughput_cfg.get("connections") or default_connections)
+    upload_connections = int(throughput_cfg.get("upload_connections") or 1)
+    upload_bytes = int(throughput_cfg.get("upload_bytes") or 5_000_000)
+    timeout_s = int(throughput_cfg.get("timeout_s") or 20)
+    url_count = int(throughput_cfg.get("url_count") or max(connections, 5))
+    fastcom_url_count = int(throughput_cfg.get("fastcom_url_count") or url_count)
+    urls = throughput_cfg.get("urls")
+    if urls is None:
+        urls = throughput_cfg.get("download_urls")
+
     return {
         "enabled": bool(throughput_cfg.get("enabled", False)),
+        "method": method,
+        "connections": max(1, min(connections, 8)),
+        "upload_connections": max(0, min(upload_connections, 4)),
+        "upload_bytes": max(0, upload_bytes),
+        "timeout_s": max(5, min(timeout_s, 120)),
+        "url_count": max(1, min(url_count, 20)),
+        "fastcom_url_count": max(1, min(fastcom_url_count, 20)),
         "url": throughput_cfg.get("url", "https://speed.hetzner.de/10MB.bin"),
+        "urls": urls,
         "upload_url": throughput_cfg.get("upload_url", "https://httpbin.org/post"),
     }
 
@@ -3387,6 +3664,8 @@ def run_aruba_mode(
 
     # State tracking for Wi-Fi environment metrics (for stale cleanup)
     wifi_env_state: Dict[str, Any] = {}
+    # State tracking for singleton info metrics (avoid duplicate time series)
+    network_info_state: Dict[Any, Tuple[str, ...]] = {}
     
     # Continuous test cycle (Aruba UXI runs tests in round-robin, one at a time)
     cycle_num = 0
@@ -3552,17 +3831,33 @@ def run_aruba_mode(
                 wifi_mac = get_interface_mac(network.iface)
                 wifi_ip = ip_addr  # Use the IP we just got
                 
-                UXI_NETWORK_INFO.labels(
-                    sensor=sensor_name,
-                    network=network_alias,
-                    ip_config=ip_config or "DHCP",
-                    dhcp_server=dhcp_server or "unknown",
-                    gateway=gateway or "unknown",
-                    primary_dns=primary_dns or "unknown",
-                    secondary_dns=secondary_dns or "unknown",
-                    wifi_mac=wifi_mac or "unknown",
-                    wifi_ip=wifi_ip or "unknown",
-                ).set(1.0)
+                _set_singleton_gauge(
+                    UXI_NETWORK_INFO,
+                    [
+                        "sensor",
+                        "network",
+                        "ip_config",
+                        "dhcp_server",
+                        "gateway",
+                        "primary_dns",
+                        "secondary_dns",
+                        "wifi_mac",
+                        "wifi_ip",
+                    ],
+                    (
+                        sensor_name,
+                        network_alias,
+                        ip_config or "DHCP",
+                        dhcp_server or "unknown",
+                        gateway or "unknown",
+                        primary_dns or "unknown",
+                        secondary_dns or "unknown",
+                        wifi_mac or "unknown",
+                        wifi_ip or "unknown",
+                    ),
+                    network_info_state,
+                    (sensor_name, network_alias),
+                )
                 
                 # Also update IP present metric
                 UXI_NETWORK_IP_PRESENT.labels(sensor=sensor_name, network=network_alias).set(1.0)
@@ -3747,13 +4042,16 @@ def run_aruba_mode(
                     if mos is not None:
                         UXI_VOIP_MOS.labels(sensor=sensor_name, network=network_alias, scope=scope).set(mos)
 
-                # Throughput test (Fast.com-like) - Aruba UXI uses headless Chromium
-                # NOW ALSO outputs to raw CSV for Aruba UXI compatibility
+                # Throughput test
+                # Aruba UXI runs Fast.com via headless Chromium; UXI-Lite can use Fast.com API directly
+                # (method=fastcom) or run a URL-based test (method=http).
                 if "throughput" in tests and throughput_cfg.get("enabled"):
                     set_current_test(network_alias, "throughput", "speed.test", svc_name)
                     ts = datetime.now()
-                    # Use Fast.com-like parallel download test
-                    download_speed, elapsed = run_fastcom_throughput_test(timeout_s=20)
+                    timeout_s = int(throughput_cfg.get("timeout_s") or 20)
+                    download_speed, upload_speed, elapsed = run_throughput_test(
+                        throughput_cfg, timeout_s=timeout_s
+                    )
                     
                     # Update Prometheus metrics for dashboard display
                     if download_speed is not None:
@@ -3762,9 +4060,20 @@ def run_aruba_mode(
                             network=network_alias,
                             target=svc_name,
                         ).set(download_speed)
+                    if upload_speed is not None:
+                        UXI_THROUGHPUT_UPLOAD_MBPS.labels(
+                            sensor=sensor_name,
+                            network=network_alias,
+                            target=svc_name,
+                        ).set(upload_speed)
+
+                    if download_speed is not None or upload_speed is not None:
                         LOG.info(
-                            "Throughput test %s: download=%.2f Mbps (elapsed=%.1fs)",
-                            svc_name, download_speed, elapsed or 0
+                            "Throughput test %s: download=%s Mbps upload=%s Mbps (elapsed=%.1fs)",
+                            svc_name,
+                            f"{download_speed:.2f}" if download_speed is not None else "NA",
+                            f"{upload_speed:.2f}" if upload_speed is not None else "NA",
+                            elapsed or 0,
                         )
                         
                         # === WRITE THROUGHPUT TO CSV (Aruba UXI compatible) ===
@@ -3773,6 +4082,7 @@ def run_aruba_mode(
                             svc_name=svc_name,
                             service_uid=service_uid,
                             download_speed=download_speed,
+                            upload_speed=upload_speed,
                             elapsed_s=elapsed,
                         )
                     else:
@@ -3894,26 +4204,6 @@ def run_aruba_mode(
             
             # Sensor info
             UXI_SENSOR_INFO.labels(sensor=sensor_name, model="UXI-Lite", serial=sensor_uid).set(1.0)
-            
-            # Network info
-            ip_config = get_ip_config_label(network.iface)
-            dhcp_server = get_dhcp_server(network.iface)
-            _, gateway = step_gateway_present(network.iface)
-            primary_dns, secondary_dns = get_dns_servers(network.iface)
-            wifi_mac = get_interface_mac(network.iface)
-            wifi_ip = get_interface_ipv4(network.iface)
-            
-            UXI_NETWORK_INFO.labels(
-                sensor=sensor_name,
-                network=network_alias,
-                ip_config=ip_config or "unknown",
-                dhcp_server=dhcp_server or "unknown",
-                gateway=gateway or "unknown",
-                primary_dns=primary_dns or "unknown",
-                secondary_dns=secondary_dns or "unknown",
-                wifi_mac=wifi_mac or "unknown",
-                wifi_ip=wifi_ip or "unknown",
-            ).set(1.0)
         
         # Optional delay between cycles (Aruba agents use 5 min, sensors default to 0)
         if inter_cycle_delay > 0:

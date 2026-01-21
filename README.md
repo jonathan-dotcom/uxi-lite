@@ -195,6 +195,15 @@ services:
 # The service entry above configures WHEN it runs (name & frequency)
 throughput_test:
   enabled: true
+  # Method options:
+  # - http: download/upload to the URLs below
+  # - fastcom: Aruba UXI-like Fast.com (Netflix OCA) endpoints
+  method: http
+  # Parallel connections (higher = more accurate but more bandwidth)
+  connections: 3
+  upload_connections: 1
+  upload_bytes: 5000000
+  timeout_s: 20
   url: https://speed.cloudflare.com/__down?bytes=10000000
   upload_url: https://speed.cloudflare.com/__up
 

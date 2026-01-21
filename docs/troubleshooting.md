@@ -180,8 +180,11 @@ cat /etc/systemd/system/uxi-core.service | grep User
 # Test download URL manually
 curl -o /dev/null -w "%{speed_download}" https://speed.cloudflare.com/__down?bytes=10000000
 
+# If using method: fastcom, verify Fast.com endpoints are reachable
+curl -sS https://fast.com | head
+
 # Check config
-cat /opt/uxi-lite-sensor/config/config.yaml | grep -A3 "throughput_test:"
+cat /opt/uxi-lite-sensor/config/config.yaml | grep -A10 "throughput_test:"
 ```
 
 **Config Check:**
@@ -196,6 +199,11 @@ services:
 # Throughput config (HOW to run)
 throughput_test:
   enabled: true
+  method: http   # or: fastcom (Aruba-like)
+  connections: 3
+  upload_connections: 1
+  upload_bytes: 5000000
+  timeout_s: 20
   url: https://speed.cloudflare.com/__down?bytes=10000000
   upload_url: https://speed.cloudflare.com/__up
 ```
